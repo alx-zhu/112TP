@@ -22,6 +22,7 @@ class Player(object):
         #velocity
         self.vy = 0
         self.vx = 0
+        self.direction = 1
         #gravity
         self.g = 250
         #jump
@@ -30,7 +31,6 @@ class Player(object):
         self.ax = 0
         self.ay = 0
         #bools and other checks
-        self.movingX = False
         self.jumps = 2
         self.isJumping = False
         self.isFalling = False
@@ -45,7 +45,6 @@ class Player(object):
         rightEdge = self.cx + self.cw
         bottomEdge = self.cy + self.ch
         topEdge = self.cy - self.ch
-        canMove = True
         #for debugging falling
         for x1, y1, x2, y2 in app.platforms:
             if ((bottomEdge + dy > y1) and (topEdge < y1) and 
@@ -109,7 +108,9 @@ class Player(object):
 
     def checkIfOffScreenAndUpdateRoom(self, app):
         roomRow, roomCol = app.currentRoom
-        if self.cx < 0:
+        if (roomRow, roomCol) not in app.visited:
+            app.visited.add((roomRow, roomCol))
+        if self.cx < app.leftBorder:
             roomRow, roomCol = app.currentRoom
             roomCol -= 1
             app.currentRoom = (roomRow, roomCol)
@@ -120,7 +121,7 @@ class Player(object):
             roomCol += 1
             app.currentRoom = (roomRow, roomCol)
             #update position
-            self.cx = self.cw + 10
+            self.cx = app.leftBorder + self.cw + 10
             #load new room
             loadRoom(app, roomRow, roomCol)
         elif self.cy < 0:
@@ -135,10 +136,132 @@ class Player(object):
             #update position
             self.cy = self.cw + 10
             loadRoom(app, roomRow, roomCol)
+    
+    def attack(self):
+        #fire a projectile at the character's height
+        pass
+
+################################################################################
+#########################  WEAPON/PROJECTILE CLASSES  ##########################
+################################################################################
+class Projectile(object):
+    def __init__(self, speed, dmg, direction, xi, yi):
+        self.speed = speed
+        self.dmg = dmg
+        self.direction = direction
+        self.x = xi
+        self.y = yi
+    
+
+class Weapon(object):
+    def __init__(self, speed, dmg, reload):
+        self.speed = speed
+        self.dmg = dmg
+        self.reload = reload
+
+class BasicWeapon(Weapon):
+    def fire(self):
+        pass
+
+    
+
+################################################################################
+###############################  MONSTER CLASS  ################################
+################################################################################
+
+class Monster(object):
+    def __init__(self, app, hp, dmg, cx, cy):
+        self.hp = hp
+        self.dmg = dmg
+        self.walkSpeed = 1000
+        #starting position
+        self.cw = 20
+        self.ch = 20
+        self.cx = cx
+        self.cy = cy - 4*self.ch
+        #velocity
+        self.vy = 0
+        self.vx = int(600*random.random())
+        #x-component of unit vector
+        randDir = [-1, 1]
+        self.direction = randDir[random.randint(0, 1)]
+        #gravity
+        self.g = 250
+        #bools and other checks
+        self.isJumping = False
+        self.isFalling = False
+
+    def aboveOrBelowPlatform(self, x1, x2, leftEdge, rightEdge):
+        if leftEdge < x2 and rightEdge > x1:
+            return True
+        return False
+
+    def moveY(self, app, dy):
+        leftEdge = self.cx - self.cw
+        rightEdge = self.cx + self.cw
+        bottomEdge = self.cy + self.ch
+        topEdge = self.cy - self.ch
+        for x1, y1, x2, y2 in app.platforms:
+            if ((bottomEdge + dy > y1) and (topEdge < y1) and 
+                    self.aboveOrBelowPlatform(x1, x2, leftEdge, rightEdge)):
+                self.cy = y1 - self.ch
+                self.isFalling = False
+                self.vy = 0
+                return
+        if self.isFalling:
+            self.cy += dy
+        else:
+            self.isFalling = True
+
+    def nextToPlatform(self, y1, y2, topEdge, bottomEdge):
+        #if (y1 > topEdge and y1 < bottomEdge) or (y2 < bottomEdge and y2 > topEdge):
+        if (((topEdge < y2 and topEdge > y1) or 
+            (bottomEdge > y1 and bottomEdge < y2)) or
+            ((y1 > topEdge and y1 < bottomEdge) or 
+            (y2 < bottomEdge and y2 > topEdge))):
+            return True
+        return False 
+
+    def moveX(self, app, dx):
+        leftEdge = self.cx - self.cw
+        rightEdge = self.cx + self.cw
+        bottomEdge = self.cy + self.ch
+        topEdge = self.cy - self.ch
+        for x1, y1, x2, y2 in app.platforms:
+            if (self.nextToPlatform(y1, y2, topEdge, bottomEdge) and 
+                ((rightEdge + dx >= x1 and leftEdge < x1) or 
+                (leftEdge - dx <= x2 and rightEdge > x2))):
+                #print(f"TOUCHING A PLATFORM, leftEdge = {leftEdge}, x2 = {x2}")
+                #if on the left of a platform, stop right when the right side
+                #touches, and vice versa
+                if rightEdge <= x1:
+                    self.cx = x1 - self.cw - 5
+                    self.direction = -1
+                    #print("here")
+                if leftEdge >= x2:
+                    self.cx = x2 + self.cw + 5
+                    self.direction = 1
+                #self.vx = 0
+        if self.direction == 1:
+            self.cx += dx
+        elif self.direction == -1:
+            self.cx -= dx
+
+#outside of class
+def spawnMonster(app, row, col):
+        x1, y1, x2, y2 = getCellBounds(app, row, col)
+        #place a monster at center of platform
+        cx = x1 + (x2-x1)/2
+        cy = y2
+        return Monster(app, 100, 10, cx, cy)
+
 
 ################################################################################
 ###############################  MAZE GENERATOR  ###############################
 ################################################################################
+
+#Original source: https://medium.com/swlh/fun-with-python-1-maze-generator-931639b4fb7e
+#Code modified greatly, but original structure is based on the website
 
 def printMaze(maze):
     p, w, u = 0, 1, -1
@@ -268,15 +391,18 @@ def createMaze(rows, cols):
 ####################################  ROOM  ####################################
 ################################################################################
 
+#creates the walls and floors necesarry for a room based on the rooms around it
 def getWallsAndFloors(app, left, right, up, down):
     wallsAndFloors = []
     #left, right, up and down tell where the doors are.
     #will return a list of the coordinates of the walls.
     if left == True:
-        wallsAndFloors.append((0, 0, 10, app.height/2 - 80))
-        wallsAndFloors.append((0, app.height/2 + 80, 10, app.height))
+        wallsAndFloors.append((app.leftBorder, 0, app.leftBorder + 10, 
+                        app.height/2 - 80))
+        wallsAndFloors.append((app.leftBorder, app.height/2 + 80, 
+                        app.leftBorder + 10, app.height))
     else: 
-        wallsAndFloors.append((0, 0, 10, app.height))
+        wallsAndFloors.append((app.leftBorder, 0, app.leftBorder + 10, app.height))
     
     if right == True:
         wallsAndFloors.append((app.width-10, 0, app.width, app.height/2 - 80))
@@ -286,17 +412,20 @@ def getWallsAndFloors(app, left, right, up, down):
         wallsAndFloors.append((app.width-10, 0, app.width, app.height))
     
     if up == True:
-        wallsAndFloors.append((0, 0, app.width/2 - 80, 10))
-        wallsAndFloors.append((app.width/2 + 80, 0, app.width, 10))
+        wallsAndFloors.append((app.leftBorder, 0, 
+                    app.leftBorder + app.gameWidth/2 - 80, 10))
+        wallsAndFloors.append((app.leftBorder + app.gameWidth/2 + 80, 
+                    0, app.width, 10))
     else:
-        wallsAndFloors.append((0, 0, app.width, 10))
+        wallsAndFloors.append((app.leftBorder, 0, app.width, 10))
     
     if down == True:
-        wallsAndFloors.append((0, app.height-20, app.width/2 - 80, app.height))
-        wallsAndFloors.append((app.width/2 + 80, app.height-20, 
-                                app.width, app.height))
+        wallsAndFloors.append((app.leftBorder, app.height-20, 
+                    app.leftBorder + app.gameWidth/2 - 80, app.height))
+        wallsAndFloors.append((app.leftBorder + app.gameWidth/2 + 80, 
+                    app.height-20, app.width, app.height))
     else:
-        wallsAndFloors.append((0, app.height-20, app.width, app.height))
+        wallsAndFloors.append((app.leftBorder, app.height-20, app.width, app.height))
     return wallsAndFloors
 
 def isLegal(app, row, col):
@@ -330,13 +459,19 @@ def loadRoom(app, roomRow, roomCol):
     for row, col in app.platRowCols:
         x1, y1, x2, y2 = getCellBounds(app, row, col)
         app.platforms.append((x1, y2-app.platformHeight, x2, y2))
+    #spawn one monster on each platform (each platform is at least 2 grids long)
+    app.monsters = []
+    for i in range(0, len(app.platRowCols), 3):
+        print(row, col)
+        row, col = app.platRowCols[i]
+        app.monsters.append(spawnMonster(app, row, col))
 
 ################################################################################
 ###################################  GRID  #####################################
 ################################################################################
 
 def getCell(app, x, y):
-    gridWidth  = app.width - 2*app.margin
+    gridWidth  = app.gameWidth - 2*app.margin
     gridHeight = app.height - 2*app.margin
     cellWidth  = gridWidth / app.cols
     cellHeight = gridHeight / app.rows
@@ -345,12 +480,12 @@ def getCell(app, x, y):
     return (row, col)
 
 def getCellBounds(app, row, col):
-    gridWidth  = app.width
+    gridWidth  = app.gameWidth
     gridHeight = app.height
     cellWidth = gridWidth / app.cols
     cellHeight = gridHeight / app.rows
-    x0 = app.margin + col * cellWidth
-    x1 = app.margin + (col+1) * cellWidth
+    x0 = app.margin + app.leftBorder + col * cellWidth
+    x1 = app.margin + app.leftBorder + (col+1) * cellWidth
     y0 = app.margin + row * cellHeight
     y1 = app.margin + (row+1) * cellHeight
     return (x0, y0, x1, y1)
@@ -365,20 +500,54 @@ def drawGrid(app, canvas):
             canvas.create_text(x0 + midX, y0 + midY - 15, 
                     text = f"({row},{col})", font = "Arial 15", anchor = "n")
 
+################################  Minimap Grid  ################################
+
+def mapCellBounds(app, row, col):
+    width = app.mapWidth
+    height = app.mapWidth
+    cellWidth = width/app.mapRows
+    cellHeight = width/app.mapCols
+    x0 = app.mapMargin + col * cellWidth
+    x1 = app.mapMargin + (col+1) * cellWidth
+    y0 = (app.height - height - app.mapMargin) + row * cellHeight
+    y1 = (app.height - height - app.mapMargin) + (row+1) * cellHeight
+    return (x0, x1, y0, y1)
+
+def drawMapGrid(app, canvas):
+    for row in range(app.mapRows):
+        for col in range(app.mapCols):
+            x0, x1, y0, y1 = mapCellBounds(app, row, col)
+            if (row, col) == app.currentRoom:
+                canvas.create_rectangle(x0, y0, x1, y1, fill = "red",
+                outline = "red")
+            elif (row, col) in app.visited:
+                canvas.create_rectangle(x0, y0, x1, y1, fill = "white",
+                outline = "white")
+            else:
+                canvas.create_rectangle(x0, y0, x1, y1, fill = "black",
+                    outline = "red")
+
+
+
 ################################################################################
 ################################  CMU GRAPHICS  ################################
 ################################################################################
 
 def appStarted(app):
     app.player = Player(app)
+    app.monsters = []
     #grid
     app.rows = 10
     app.cols = 10
+    app.leftBorder = 300
+    app.gameWidth = app.width-app.leftBorder
     app.margin = 0
+    app.mapMargin = 50
+    app.mapWidth = 200
     #other
     app.timerDelay = 50
     #starting position
-    app.player.cx = app.player.cw + 20
+    app.player.cx = app.leftBorder + app.player.cw + 20
     app.player.cy = app.height - app.player.ch
     app.g = 250
     #list of platforms
@@ -399,13 +568,18 @@ def appStarted(app):
                 [0, 1, 0, 0],
                 [1, 1, 1, 1],
                 [0, 1, 0, 0]]'''
+    app.showMap = False
+    app.mapRows = 8
+    app.mapCols = app.mapRows
     app.map = createMaze(8, 8)
-    app.currentRoom = (0, 0)
+    app.currentRoom = ()
+    app.visited = set()
     #find the entrance
     for col in range(len(app.map[0])):
         if app.map[0][col] == 0:
             app.currentRoom = (0, col)
             break
+    app.visited.add(app.currentRoom)
     loadRoom(app, app.currentRoom[0], app.currentRoom[1])
 
 ############################### Draw Functions #################################
@@ -415,13 +589,31 @@ def drawChar(app, canvas):
                             app.player.cy - app.player.ch, 
                             app.player.cx + app.player.cw, 
                             app.player.cy + app.player.ch, fill = "black")
+    if app.player.direction == 1:
+        cx = app.player.cx + app.player.cw
+        cy = app.player.cy
+        canvas.create_rectangle(cx-5, cy-5, cx+5, cy+5, fill = "white")
+    else:
+        cx = app.player.cx - app.player.cw
+        cy = app.player.cy
+        canvas.create_rectangle(cx-5, cy-5, cx+5, cy+5, fill = "white")
 
 def drawPlatforms(app, canvas):
     for x1, y1, x2, y2 in app.platforms:
         canvas.create_rectangle(x1, y1, x2, y2, fill = "black")
 
+def drawMonsters(app, canvas):
+    for monster in app.monsters:
+        x = monster.cx
+        y = monster.cy
+        canvas.create_rectangle(x - monster.cw, y - monster.ch,
+                                x + monster.cw, y + monster.cw, fill = "red")
+
 def drawFloor(app, canvas):
     canvas.create_rectangle(0, app.height-10, app.width, app.height)
+
+def drawMinimap(app, canvas):
+    drawMapGrid(app, canvas)
 
 ######################## Built-in Controller Functions #########################
 
@@ -430,15 +622,22 @@ def keyPressed(app, event):
         app.player.vx = -1 * app.player.walkSpeed
         app.player.ax = 0
         app.player.movingX = True
+        app.player.direction = -1
     elif event.key == "Right":
         app.player.vx = app.player.walkSpeed
         app.player.ax = 0
         app.player.movingX = True
+        app.player.direction = 1
     elif event.key == "Up":
         app.player.isJumping = True
         app.player.jump()
     elif event.key == "r":
         appStarted(app)
+    elif event.key == "m":
+        if app.showMap:
+            app.showMap = False
+        else:
+            app.showMap = True
 
 def keyReleased(app, event):
     #if the right or left key is released while on the ground, decelerate.
@@ -452,6 +651,8 @@ def keyReleased(app, event):
 
 def timerFired(app):
     coeff = 0.01 #allows numbers to stay as integers
+
+    #player movement
     if app.player.isFalling:
         app.player.vy += app.g
     app.player.moveCharY(app, app.player.vy*coeff)
@@ -460,18 +661,39 @@ def timerFired(app):
         app.player.movingX = False
         app.player.ax = 0
     app.player.vx += app.player.ax
+
+    #monster movement
     app.player.checkIfOffScreenAndUpdateRoom(app)
+    for monster in app.monsters:
+        if monster.isFalling:
+            monster.vy += app.g
+        monster.moveY(app, monster.vy*coeff)
+        monster.moveX(app, monster.vx*coeff)
 
 def redrawAll(app, canvas):
     #drawGrid(app, canvas)
     drawPlatforms(app, canvas)
     drawChar(app, canvas)
-    canvas.create_text(app.width/2, app.height/2 - 30, 
+    drawMonsters(app, canvas)
+    if app.showMap:
+        drawMinimap(app, canvas)
+    else:
+        canvas.create_rectangle(2*app.mapMargin, (app.height - app.mapWidth/2 - 2*app.mapMargin),
+                    2*app.mapMargin + app.mapWidth/2,
+                    (app.height - 2*app.mapMargin),
+                    fill = "black", outline = "red")
+        canvas.create_text(app.mapMargin + app.mapWidth/2,
+                            app.height - app.mapWidth/2 - app.mapMargin - 25, 
+                            text = "Press 'm' to\n    toggle\n  minimap",
+                            font = "Arial 10 bold",
+                            fill = "white",
+                            anchor = "n")
+    canvas.create_text(app.leftBorder + app.gameWidth/2, app.height/2 - 30, 
         text = f"Room: ({app.currentRoom[0]},{app.currentRoom[1]})",
         font = "Arial 20")
-    canvas.create_text(app.width/2, app.height/2, 
-        text = mazeToString(app.map), 
-        font = "Arial 10",
-        anchor = "n")
+    #canvas.create_text(app.leftBorder + app.gameWidth/2, app.height/2, 
+    #    text = mazeToString(app.map), 
+    #    font = "Arial 10",
+    #    anchor = "n")
 
-runApp(width = 800, height = 800)
+runApp(width = 1100, height = 800)
