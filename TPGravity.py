@@ -10,10 +10,12 @@ import math
 class Player(object):
     def __init__(self, app):
         #stats
-        self.health = 100
+        self.hp = 100
         self.armor = 0
-        self.damage = 0
+        self.bonusDmg = 0
         self.walkSpeed = 1000
+        #items/weapons
+        self.weapon = BasicWeapon()
         #starting position
         self.cw = 20
         self.ch = 20
@@ -137,31 +139,61 @@ class Player(object):
             self.cy = self.cw + 10
             loadRoom(app, roomRow, roomCol)
     
-    def attack(self):
+    def attack(self, app):
         #fire a projectile at the character's height
-        pass
+        speed = self.weapon.speed
+        dmg = self.weapon.dmg + self.bonusDmg
+        size = self.weapon.size
+        color = self.weapon.color
+        cx = self.cx + self.direction*self.cw
+        app.projectiles.append(Projectile(speed, dmg, self.direction, 
+                            cx, self.cy, size, color))
 
 ################################################################################
 #########################  WEAPON/PROJECTILE CLASSES  ##########################
 ################################################################################
 class Projectile(object):
-    def __init__(self, speed, dmg, direction, xi, yi):
+    def __init__(self, speed, dmg, direction, xi, yi, size, color):
         self.speed = speed
         self.dmg = dmg
         self.direction = direction
         self.x = xi
         self.y = yi
-    
+        self.size = size
 
+    def moveX(self, app):
+        if self.x - self.speed < app.leftBorder or self.x + self.speed > app.width:
+            self.destroy(app)
+        else:
+            for monster in app.monsters:
+                if math.dist((self.x + self.direction*self.speed, self.y), 
+                            (monster.cx, monster.cy)) < monster.cw + self.size:
+                    self.destroy(app)
+                    monster.takeDamage(app, self.dmg)
+
+        if self.direction == 1:
+            self.x += self.speed
+        else:
+            self.x -= self.speed
+
+    def destroy(self, app):
+        app.projectiles.remove(self)
+
+#Each weapon has these stats predefined
 class Weapon(object):
-    def __init__(self, speed, dmg, reload):
+    def __init__(self, speed, dmg, reload, color):
         self.speed = speed
         self.dmg = dmg
         self.reload = reload
+        self.color = color
 
 class BasicWeapon(Weapon):
-    def fire(self):
-        pass
+    def __init__(self):
+        self.speed = 30
+        self.dmg = 10
+        self.reload = 10
+        self.size = 6
+        self.color = "yellow"
 
     
 
@@ -246,6 +278,11 @@ class Monster(object):
             self.cx += dx
         elif self.direction == -1:
             self.cx -= dx
+
+    def takeDamage(self, app, dmg):
+        self.hp -= dmg
+        if self.hp <= 0:
+            app.monsters.remove(self)
 
 #outside of class
 def spawnMonster(app, row, col):
@@ -677,8 +714,7 @@ def appStarted(app):
             break
     app.visited.add(app.currentRoom)
     loadRoom(app, app.currentRoom[0], app.currentRoom[1])
-
-    printMaze(app.map)
+    app.projectiles = []
 
 ############################### Draw Functions #################################
 
@@ -690,11 +726,11 @@ def drawChar(app, canvas):
     if app.player.direction == 1:
         cx = app.player.cx + app.player.cw
         cy = app.player.cy
-        canvas.create_rectangle(cx-5, cy-5, cx+5, cy+5, fill = "white")
+        canvas.create_rectangle(cx-5, cy-5, cx+10, cy+5, fill = app.player.weapon.color)
     else:
         cx = app.player.cx - app.player.cw
         cy = app.player.cy
-        canvas.create_rectangle(cx-5, cy-5, cx+5, cy+5, fill = "white")
+        canvas.create_rectangle(cx-10, cy-5, cx+5, cy+5, fill = app.player.weapon.color)
 
 def drawPlatforms(app, canvas):
     for x1, y1, x2, y2 in app.platforms:
@@ -712,6 +748,11 @@ def drawFloor(app, canvas):
 
 def drawMinimap(app, canvas):
     drawMapGrid(app, canvas)
+
+def drawProjectiles(app, canvas):
+    for proj in app.projectiles:
+        canvas.create_oval(proj.x-proj.size, proj.y-proj.size, 
+                    proj.x+proj.size, proj.y+proj.size, fill = app.player.weapon.color)
 
 ######################## Built-in Controller Functions #########################
 
@@ -736,6 +777,8 @@ def keyPressed(app, event):
             app.showMap = False
         else:
             app.showMap = True
+    elif event.key == "Space":
+        app.player.attack(app)
 
 def keyReleased(app, event):
     #if the right or left key is released while on the ground, decelerate.
@@ -759,20 +802,25 @@ def timerFired(app):
         app.player.movingX = False
         app.player.ax = 0
     app.player.vx += app.player.ax
+    app.player.checkIfOffScreenAndUpdateRoom(app)
 
     #monster movement
-    app.player.checkIfOffScreenAndUpdateRoom(app)
     for monster in app.monsters:
         if monster.isFalling:
             monster.vy += app.g
         monster.moveY(app, monster.vy*coeff)
         monster.moveX(app, monster.vx*coeff)
 
+    #projectile movement
+    for proj in app.projectiles:
+        proj.moveX(app)
+
 def redrawAll(app, canvas):
     #drawGrid(app, canvas)
     drawPlatforms(app, canvas)
     drawChar(app, canvas)
     drawMonsters(app, canvas)
+    drawProjectiles(app, canvas)
     if app.showMap:
         drawMinimap(app, canvas)
     else:
