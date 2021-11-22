@@ -10,10 +10,17 @@ import math
 class Player(object):
     def __init__(self, app):
         #stats
+        self.maxHp = 100
         self.hp = 100
         self.armor = 0
         self.bonusDmg = 0
         self.walkSpeed = 1000
+        self.invincible = 0 #2 seconds invincibility
+        #40 is 2 seconds invincibility
+        #colors
+        self.invincibleColor = "gray"
+        self.originalColor = "black"
+        self.color = self.originalColor
         #items/weapons
         self.weapon = BasicWeapon()
         #starting position
@@ -37,7 +44,7 @@ class Player(object):
         self.isJumping = False
         self.isFalling = False
     
-    def aboveOrBelowPlatform(self, x1, x2, leftEdge, rightEdge):
+    def aboveOrBelow(self, x1, x2, leftEdge, rightEdge):
         if leftEdge < x2 and rightEdge > x1:
             return True
         return False
@@ -50,7 +57,7 @@ class Player(object):
         #for debugging falling
         for x1, y1, x2, y2 in app.platforms:
             if ((bottomEdge + dy > y1) and (topEdge < y1) and 
-                    self.aboveOrBelowPlatform(x1, x2, leftEdge, rightEdge)):
+                    self.aboveOrBelow(x1, x2, leftEdge, rightEdge)):
                 self.jumps = 2
                 self.cy = y1 - self.ch
                 self.isFalling = False
@@ -58,7 +65,7 @@ class Player(object):
                 return
             #if below a platform and topEdge will go through, collide
             if((topEdge + dy < y2) and (bottomEdge > y2) and
-                self.aboveOrBelowPlatform(x1, x2, leftEdge, rightEdge)):
+                self.aboveOrBelow(x1, x2, leftEdge, rightEdge)):
                 #if you hit the bottom of a platform stop moving, and fall.
                 #set dy to 0 so the position does not update.
                 self.cy = y2 + self.ch
@@ -72,7 +79,7 @@ class Player(object):
             #print("I am Falling")
         #print(f"Jumping: {app.isJumping}, Falling: {app.isFalling}")
 
-    def nextToPlatform(self, y1, y2, topEdge, bottomEdge):
+    def nextTo(self, y1, y2, topEdge, bottomEdge):
         #if (y1 > topEdge and y1 < bottomEdge) or (y2 < bottomEdge and y2 > topEdge):
         if (((topEdge < y2 and topEdge > y1) or 
             (bottomEdge > y1 and bottomEdge < y2)) or
@@ -88,7 +95,7 @@ class Player(object):
         topEdge = self.cy - self.ch
         for x1, y1, x2, y2 in app.platforms:
             #print(nextToPlatform(y1, y2, topEdge, bottomEdge))
-            if (self.nextToPlatform(y1, y2, topEdge, bottomEdge) and 
+            if (self.nextTo(y1, y2, topEdge, bottomEdge) and 
                 ((rightEdge + dx >= x1 and leftEdge < x1) or 
                 (leftEdge + dx <= x2 and rightEdge > x2))):
                 #if on the left of a platform, stop right when the right side
@@ -111,7 +118,8 @@ class Player(object):
     def checkIfOffScreenAndUpdateRoom(self, app):
         roomRow, roomCol = app.currentRoom
         if (roomRow, roomCol) not in app.visited:
-            app.visited.add((roomRow, roomCol))
+            #assign a random number of monsters to each room
+            app.visited[app.currentRoom] = random.randint(5, 10)
         if self.cx < app.leftBorder:
             roomRow, roomCol = app.currentRoom
             roomCol -= 1
@@ -139,15 +147,36 @@ class Player(object):
             self.cy = self.cw + 10
             loadRoom(app, roomRow, roomCol)
     
+    def checkIfHit(self, app):
+        if self.invincible > 0:
+            return
+        for monster in app.monsters:
+            mw = monster.cw
+            mh = monster.ch
+            if ((abs(self.cy - monster.cy) <= self.ch + mh) and 
+                (abs(self.cx - monster.cx) <= self.cw + mw)):    
+                self.takeDamage(monster.dmg)
+                self.invincible = 40
+                break
+            
+
+
     def attack(self, app):
-        #fire a projectile at the character's height
-        speed = self.weapon.speed
-        dmg = self.weapon.dmg + self.bonusDmg
-        size = self.weapon.size
-        color = self.weapon.color
-        cx = self.cx + self.direction*self.cw
-        app.projectiles.append(Projectile(speed, dmg, self.direction, 
-                            cx, self.cy, size, color))
+        if self.invincible > 0:
+            return
+        if self.weapon.reload == 0:
+            #fire a projectile at the character's height
+            speed = self.weapon.speed
+            dmg = self.weapon.dmg + self.bonusDmg
+            size = self.weapon.size
+            color = self.weapon.color
+            cx = self.cx + self.direction*self.cw
+            app.projectiles.append(Projectile(speed, dmg, self.direction, 
+                                cx, self.cy, size, color))
+            self.weapon.reload = self.weapon.reloadTime
+        
+    def takeDamage(self, dmg):
+        self.hp -= dmg
 
 ################################################################################
 #########################  WEAPON/PROJECTILE CLASSES  ##########################
@@ -160,6 +189,7 @@ class Projectile(object):
         self.x = xi
         self.y = yi
         self.size = size
+        self.color = color
 
     def moveX(self, app):
         if self.x - self.speed < app.leftBorder or self.x + self.speed > app.width:
@@ -170,6 +200,7 @@ class Projectile(object):
                             (monster.cx, monster.cy)) < monster.cw + self.size:
                     self.destroy(app)
                     monster.takeDamage(app, self.dmg)
+                    break
 
         if self.direction == 1:
             self.x += self.speed
@@ -184,18 +215,35 @@ class Weapon(object):
     def __init__(self, speed, dmg, reload, color):
         self.speed = speed
         self.dmg = dmg
-        self.reload = reload
+        self.reloadTime = reload
         self.color = color
 
 class BasicWeapon(Weapon):
     def __init__(self):
         self.speed = 30
         self.dmg = 10
-        self.reload = 10
+        self.reloadTime = 2
+        self.reload = 0
         self.size = 6
         self.color = "yellow"
 
-    
+class HeavyWeapon(Weapon):
+    def __init__(self):
+        self.speed = 15
+        self.dmg = 30
+        self.reloadTime = 10
+        self.reload = 0
+        self.size = 10
+        self.color = "green"
+
+class RailGun(Weapon):
+    def __init__(self):
+        self.speed = 0
+        self.dmg = 50
+        self.reloadTime = 40
+        self.reload = 0
+        self.size = 2
+        self.color = "lightBlue"
 
 ################################################################################
 ###############################  MONSTER CLASS  ################################
@@ -222,6 +270,10 @@ class Monster(object):
         #bools and other checks
         self.isJumping = False
         self.isFalling = False
+        self.isTakingDmg = False
+        self.dmgColor = "darkRed"
+        self.originalColor = "red"
+        self.color = self.originalColor
 
     def aboveOrBelowPlatform(self, x1, x2, leftEdge, rightEdge):
         if leftEdge < x2 and rightEdge > x1:
@@ -229,6 +281,8 @@ class Monster(object):
         return False
 
     def moveY(self, app, dy):
+        if self.color == self.dmgColor:
+            self.color = self.originalColor
         leftEdge = self.cx - self.cw
         rightEdge = self.cx + self.cw
         bottomEdge = self.cy + self.ch
@@ -260,6 +314,12 @@ class Monster(object):
         bottomEdge = self.cy + self.ch
         topEdge = self.cy - self.ch
         for x1, y1, x2, y2 in app.platforms:
+            if (bottomEdge >= y1 and topEdge < y1 and 
+                self.aboveOrBelowPlatform(x1, x2, leftEdge, rightEdge)):
+                if rightEdge > x2:
+                    self.direction = -1
+                elif leftEdge < x1:
+                    self.direction = 1
             if (self.nextToPlatform(y1, y2, topEdge, bottomEdge) and 
                 ((rightEdge + dx >= x1 and leftEdge < x1) or 
                 (leftEdge - dx <= x2 and rightEdge > x2))):
@@ -274,6 +334,7 @@ class Monster(object):
                     self.cx = x2 + self.cw + 5
                     self.direction = 1
                 #self.vx = 0
+
         if self.direction == 1:
             self.cx += dx
         elif self.direction == -1:
@@ -281,8 +342,13 @@ class Monster(object):
 
     def takeDamage(self, app, dmg):
         self.hp -= dmg
+        #for color change
+        self.color = self.dmgColor
         if self.hp <= 0:
             app.monsters.remove(self)
+            app.visited[app.currentRoom] = len(app.monsters)
+            #print(app.visited[app.currentRoom])
+        
 
 #outside of class
 def spawnMonster(app, row, col):
@@ -290,7 +356,7 @@ def spawnMonster(app, row, col):
         #place a monster at center of platform
         cx = x1 + (x2-x1)/2
         cy = y2
-        return Monster(app, 100, 10, cx, cy)
+        return Monster(app, 50, 10, cx, cy)
 
 
 ################################################################################
@@ -511,12 +577,32 @@ def loadRoom(app, roomRow, roomCol):
         x1, y1, x2, y2 = getCellBounds(app, row, col)
         app.platforms.append((x1, y2-app.platformHeight, x2, y2))'''
     app.platforms.extend(combinedPlatforms)
-    #spawn one monster on each platform (each platform is at least 2 grids long)
+
+    #spawn one monster for every 3 platforms (grid spaces, not combined)
     app.monsters = []
-    for i in range(0, len(layout), 3):
-        #print(row, col)
-        row, col = layout[i]
-        app.monsters.append(spawnMonster(app, row, col))
+    #add current room to app.visited
+    numMonsters = app.visited.get(app.currentRoom, random.randint(3, 10))
+    #add surrounding rooms to app.visited, to reveal them
+    directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+    currRow = app.currentRoom[0]
+    currCol = app.currentRoom[1]
+    for drow, dcol in directions:
+        newRow = currRow + drow
+        newCol = currCol + dcol
+        if (newRow > 0 and newRow < len(app.map) and
+            newCol > 0 and newCol < len(app.map[0]) and
+            app.map[newRow][newCol] != "w"):
+            app.visited[(newRow,newCol)] = app.visited.get((newRow, newCol), random.randint(3, 10))
+
+    if numMonsters > 0:
+        countSkip = len(layout)//numMonsters #for the last parameter of range()
+        for i in range(0, len(layout), countSkip):
+            if len(app.monsters) < numMonsters:
+                row, col = layout[i]
+                app.monsters.append(spawnMonster(app, row, col))
+            else:
+                break
+
 
 #combines platforms since the long platformsa are actually 2 or 3 platforms
 #put together. 
@@ -530,7 +616,6 @@ def combinePlatforms(app, rowColsList):
     #[[row, col, row, col, row, col], [row, col, row, col], etc.]
     combinedPlatformsRowCol = combinePlatsHelper(app, previous, plats, 
                                     [previous[0], previous[1]], [])
-    print(combinedPlatformsRowCol)
     #makes each list of row, col, row, col into a single tuple of 
     # (x1, y1, x2, y2)
     combinedPlatforms = convertToXYCoords(app, combinedPlatformsRowCol)
@@ -632,7 +717,10 @@ def drawMapGrid(app, canvas):
             if (row, col) == app.currentRoom:
                 canvas.create_rectangle(x0, y0, x1, y1, fill = "red",
                 outline = "red")
-            elif (row, col) in app.visited:
+            elif (row, col) in app.visited and app.visited[(row, col)] > 0:
+                canvas.create_rectangle(x0, y0, x1, y1, fill = "gray",
+                outline = "gray")
+            elif (row, col) in app.visited and app.visited[(row, col)] == 0:
                 canvas.create_rectangle(x0, y0, x1, y1, fill = "white",
                 outline = "white")
             else:
@@ -700,37 +788,51 @@ def appStarted(app):
                     ]
                 ]
     app.platforms = []
+    app.weaponIndex = 0
+    app.loadout = [BasicWeapon(), HeavyWeapon()]
     #map
     app.showMap = False
     app.mapRows = 8
     app.mapCols = app.mapRows
     app.map = createMaze(app, 8, 8)
     app.currentRoom = ()
-    app.visited = set()
+    app.visited = dict()
     #find the entrance
     for col in range(len(app.map[0])):
         if app.map[0][col] != 'w':
             app.currentRoom = (0, col)
             break
-    app.visited.add(app.currentRoom)
+    #app.visited.add(app.currentRoom)
+    app.visited[app.currentRoom] = 3
     loadRoom(app, app.currentRoom[0], app.currentRoom[1])
     app.projectiles = []
 
 ############################### Draw Functions #################################
 
 def drawChar(app, canvas):
-    canvas.create_rectangle(app.player.cx - app.player.cw, 
-                            app.player.cy - app.player.ch, 
-                            app.player.cx + app.player.cw, 
-                            app.player.cy + app.player.ch, fill = "black")
+    if app.player.invincible > 0:
+        canvas.create_rectangle(app.player.cx - app.player.cw, 
+                                app.player.cy - app.player.ch, 
+                                app.player.cx + app.player.cw, 
+                                app.player.cy + app.player.ch, 
+                                fill = app.player.invincibleColor)
+    else:
+        canvas.create_rectangle(app.player.cx - app.player.cw, 
+                                app.player.cy - app.player.ch, 
+                                app.player.cx + app.player.cw, 
+                                app.player.cy + app.player.ch, 
+                                fill = app.player.originalColor)
+    size = app.player.weapon.size
     if app.player.direction == 1:
         cx = app.player.cx + app.player.cw
         cy = app.player.cy
-        canvas.create_rectangle(cx-5, cy-5, cx+10, cy+5, fill = app.player.weapon.color)
+        canvas.create_rectangle(cx-5, cy-size, cx+10, cy+size, 
+                fill = app.player.weapon.color)
     else:
         cx = app.player.cx - app.player.cw
         cy = app.player.cy
-        canvas.create_rectangle(cx-10, cy-5, cx+5, cy+5, fill = app.player.weapon.color)
+        canvas.create_rectangle(cx-10, cy-size, cx+5, cy+size, 
+                fill = app.player.weapon.color)
 
 def drawPlatforms(app, canvas):
     for x1, y1, x2, y2 in app.platforms:
@@ -741,7 +843,7 @@ def drawMonsters(app, canvas):
         x = monster.cx
         y = monster.cy
         canvas.create_rectangle(x - monster.cw, y - monster.ch,
-                                x + monster.cw, y + monster.cw, fill = "red")
+                                x + monster.cw, y + monster.cw, fill = monster.color)
 
 def drawFloor(app, canvas):
     canvas.create_rectangle(0, app.height-10, app.width, app.height)
@@ -752,7 +854,37 @@ def drawMinimap(app, canvas):
 def drawProjectiles(app, canvas):
     for proj in app.projectiles:
         canvas.create_oval(proj.x-proj.size, proj.y-proj.size, 
-                    proj.x+proj.size, proj.y+proj.size, fill = app.player.weapon.color)
+                    proj.x+proj.size, proj.y+proj.size, fill = proj.color)
+
+def drawHpBar(app, canvas):
+    topMargin = 40
+    sideMargin = 20
+    hpBarHeight = 20
+    maxHp = app.player.maxHp
+    currHp = app.player.hp
+    hpLength = app.leftBorder - 2*sideMargin
+    currHpLength = hpLength * (currHp/maxHp)
+    missingHpLength = hpLength - currHpLength
+    x1 = sideMargin
+    y1 = topMargin + hpBarHeight
+    x2 = sideMargin + currHpLength
+    y2 = y1 + hpBarHeight
+    x3 = x2 + missingHpLength
+    canvas.create_rectangle(x1, y1, x2, y2, fill = "green", outline = None)
+    canvas.create_rectangle(x2, y1, x3, y2, fill = "red", outline = None)
+    midX = sideMargin + (x3-x1)/2
+    midY = y1 + (y2-y1)/2
+    canvas.create_text(midX, topMargin, text = "Health", font = "Arial 20")
+    canvas.create_text(midX, midY, text = f"{currHp}/{maxHp}", font = "Arial 10")
+
+def drawInventory(app, canvas):
+    topMargin = 80
+    cellSize = 20
+    sideMargin = app.leftBorder - len(app.loadout)*cellSize
+    
+
+def drawUI(app, canvas):
+    drawHpBar(app, canvas)
 
 ######################## Built-in Controller Functions #########################
 
@@ -779,6 +911,12 @@ def keyPressed(app, event):
             app.showMap = True
     elif event.key == "Space":
         app.player.attack(app)
+    #switching weapons
+    elif event.key == "s":
+        app.weaponIndex += 1
+        app.weaponIndex %= len(app.loadout)
+        app.player.weapon = app.loadout[app.weaponIndex]
+
 
 def keyReleased(app, event):
     #if the right or left key is released while on the ground, decelerate.
@@ -792,7 +930,11 @@ def keyReleased(app, event):
 
 def timerFired(app):
     coeff = 0.01 #allows numbers to stay as integers
-
+    app.player.checkIfHit(app)
+    if app.player.weapon.reload > 0:
+        app.player.weapon.reload -= 1
+    if app.player.invincible > 0:
+        app.player.invincible -= 1
     #player movement
     if app.player.isFalling:
         app.player.vy += app.g
@@ -821,6 +963,7 @@ def redrawAll(app, canvas):
     drawChar(app, canvas)
     drawMonsters(app, canvas)
     drawProjectiles(app, canvas)
+    drawUI(app, canvas)
     if app.showMap:
         drawMinimap(app, canvas)
     else:
