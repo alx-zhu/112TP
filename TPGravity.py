@@ -158,8 +158,6 @@ class Player(object):
                 self.takeDamage(monster.dmg)
                 self.invincible = 40
                 break
-            
-
 
     def attack(self, app):
         if self.invincible > 0:
@@ -185,13 +183,30 @@ class Projectile(object):
     def __init__(self, speed, dmg, direction, xi, yi, size, color):
         self.speed = speed
         self.dmg = dmg
+        self.di = direction #initial direction
         self.direction = direction
+        self.xi = xi
+        self.yi = yi
         self.x = xi
         self.y = yi
         self.size = size
         self.color = color
+        if self.speed == 0:
+            self.lifetime = 3
+        else:
+            self.lifetime = 0
 
     def moveX(self, app):
+        #railgun
+        if self.speed == 0:
+            for monster in app.monsters:
+                if self.y >= monster.cy - monster.ch and self.y <= monster.cy + monster.ch:
+                    monster.takeDamage(app, self.dmg)
+            if self.lifetime == 0:
+                self.destroy(app)
+            else:
+                self.lifetime -= 1
+        #normal projectiles
         if self.x - self.speed < app.leftBorder or self.x + self.speed > app.width:
             self.destroy(app)
         else:
@@ -243,6 +258,7 @@ class RailGun(Weapon):
         self.reloadTime = 40
         self.reload = 0
         self.size = 2
+        self.lifetime = 3
         self.color = "lightBlue"
 
 ################################################################################
@@ -595,14 +611,14 @@ def loadRoom(app, roomRow, roomCol):
             app.visited[(newRow,newCol)] = app.visited.get((newRow, newCol), random.randint(3, 10))
 
     if numMonsters > 0:
-        countSkip = len(layout)//numMonsters #for the last parameter of range()
-        for i in range(0, len(layout), countSkip):
-            if len(app.monsters) < numMonsters:
-                row, col = layout[i]
-                app.monsters.append(spawnMonster(app, row, col))
-            else:
-                break
-
+        while len(app.monsters) < numMonsters:
+            index = random.randint(0, len(layout)-1)
+            row, col = layout[index]
+            #Prevents them from spawning in doorways
+            if (row == 1 or (row, col) == (5, 0) or (row, col) == (5, 1)
+                or (row, col) == (5, 8) or (row, col) == (5, 9)):
+                continue
+            app.monsters.append(spawnMonster(app, row, col))
 
 #combines platforms since the long platformsa are actually 2 or 3 platforms
 #put together. 
@@ -789,7 +805,7 @@ def appStarted(app):
                 ]
     app.platforms = []
     app.weaponIndex = 0
-    app.loadout = [BasicWeapon(), HeavyWeapon()]
+    app.loadout = [BasicWeapon(), HeavyWeapon(), RailGun()]
     #map
     app.showMap = False
     app.mapRows = 8
@@ -853,11 +869,18 @@ def drawMinimap(app, canvas):
 
 def drawProjectiles(app, canvas):
     for proj in app.projectiles:
-        canvas.create_oval(proj.x-proj.size, proj.y-proj.size, 
-                    proj.x+proj.size, proj.y+proj.size, fill = proj.color)
+        if proj.speed == 0:
+            if proj.di == 1:
+                canvas.create_rectangle(proj.xi, proj.yi - proj.size,
+                        app.width, proj.yi + proj.size, fill = proj.color, outline = proj.color)
+            else:
+                canvas.create_rectangle(proj.xi, proj.yi - proj.size,
+                        app.leftBorder, proj.yi + proj.size, fill = proj.color, outline = proj.color)
+        else:
+            canvas.create_oval(proj.x-proj.size, proj.y-proj.size, 
+                    proj.x+proj.size, proj.y+proj.size, fill = proj.color, outline = proj.color)
 
-def drawHpBar(app, canvas):
-    topMargin = 40
+def drawHpBar(app, canvas, topMargin):
     sideMargin = 20
     hpBarHeight = 20
     maxHp = app.player.maxHp
@@ -877,14 +900,50 @@ def drawHpBar(app, canvas):
     canvas.create_text(midX, topMargin, text = "Health", font = "Arial 20")
     canvas.create_text(midX, midY, text = f"{currHp}/{maxHp}", font = "Arial 10")
 
-def drawInventory(app, canvas):
-    topMargin = 80
-    cellSize = 20
-    sideMargin = app.leftBorder - len(app.loadout)*cellSize
-    
+def inventoryCellBounds(app, row, col, topMargin):
+    width = app.leftBorder
+    height = topMargin
+    cellWidth = 60
+    cellHeight = 60
+    margin = (width - 3*cellWidth)/2
+    x0 = margin + col * cellWidth
+    x1 = margin + (col+1) * cellWidth
+    y0 = topMargin + row * cellHeight
+    y1 = topMargin + (row+1) * cellHeight
+    return (x0, y0, x1, y1)
+
+def drawInventory(app, canvas, rows, cols, topMargin):
+    cellSize = 60
+    sideMargin = (app.leftBorder - len(app.loadout)*cellSize)/2
+    canvas.create_text(app.leftBorder/2, topMargin, text = "Loadout", font = "Arial 20")
+    canvas.create_text(app.leftBorder/2, topMargin + 20, 
+        text = "Press 's' to cycle through", font = "Arial 10")
+    for row in range(rows):
+        for col in range(cols):
+            x1, y1, x2, y2 = inventoryCellBounds(app, row, col, topMargin + 40)
+            #print(x1, y1, x2, y2)
+            if app.weaponIndex == col:
+                canvas.create_rectangle(x1, y1, x2, y2, fill = "white", 
+                    outline = "black", width = 6)
+            else:
+                canvas.create_rectangle(x1, y1, x2, y2, fill = "white", 
+                    outline = "black", width = 3)
+            if col < len(app.loadout):
+                midX = x1 + (x2-x1)/2
+                midY = y1 + (y2-y1)/2
+                weaponColor = app.loadout[col].color
+                size = app.loadout[col].size
+                if type(app.loadout[col]) == RailGun:
+                    canvas.create_rectangle(midX-3*size, midY-size, midX+3*size, midY + size,
+                        fill = weaponColor)
+                else:
+                    canvas.create_rectangle(midX-size, midY-size, midX+size, midY+size,
+                        fill = weaponColor)
 
 def drawUI(app, canvas):
-    drawHpBar(app, canvas)
+    topMargin = 40
+    drawHpBar(app, canvas, topMargin)
+    drawInventory(app, canvas, 1, 3, topMargin + 100)
 
 ######################## Built-in Controller Functions #########################
 
@@ -960,9 +1019,9 @@ def timerFired(app):
 def redrawAll(app, canvas):
     #drawGrid(app, canvas)
     drawPlatforms(app, canvas)
-    drawChar(app, canvas)
     drawMonsters(app, canvas)
     drawProjectiles(app, canvas)
+    drawChar(app, canvas)
     drawUI(app, canvas)
     if app.showMap:
         drawMinimap(app, canvas)
