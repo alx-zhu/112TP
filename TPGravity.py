@@ -162,7 +162,7 @@ class Player(object):
     def attack(self, app):
         if self.invincible > 0:
             return
-        if self.weapon.reload == 0:
+        if self.weapon.reload == 0 and (self.weapon.ammo > 0 or self.weapon.ammo == -1):
             #fire a projectile at the character's height
             speed = self.weapon.speed
             dmg = self.weapon.dmg + self.bonusDmg
@@ -172,6 +172,8 @@ class Player(object):
             app.projectiles.append(Projectile(speed, dmg, self.direction, 
                                 cx, self.cy, size, color))
             self.weapon.reload = self.weapon.reloadTime
+            if self.weapon.ammo != -1:
+                self.weapon.ammo -= 1
         
     def takeDamage(self, dmg):
         self.hp -= dmg
@@ -241,6 +243,10 @@ class BasicWeapon(Weapon):
         self.reload = 0
         self.size = 6
         self.color = "yellow"
+        self.ammo = -1 #infinite
+    
+    def __repr__(self):
+        return "Basic Weapon"
 
 class HeavyWeapon(Weapon):
     def __init__(self):
@@ -250,6 +256,10 @@ class HeavyWeapon(Weapon):
         self.reload = 0
         self.size = 10
         self.color = "green"
+        self.ammo = 50
+
+    def __repr__(self):
+        return "Heavy Weapon"
 
 class RailGun(Weapon):
     def __init__(self):
@@ -260,6 +270,10 @@ class RailGun(Weapon):
         self.size = 2
         self.lifetime = 3
         self.color = "lightBlue"
+        self.ammo = 20
+
+    def __repr__(self):
+        return "Rail Gun"
 
 ################################################################################
 ###############################  MONSTER CLASS  ################################
@@ -743,8 +757,6 @@ def drawMapGrid(app, canvas):
                 canvas.create_rectangle(x0, y0, x1, y1, fill = "black",
                     outline = "red")
 
-
-
 ################################################################################
 ################################  CMU GRAPHICS  ################################
 ################################################################################
@@ -878,7 +890,7 @@ def drawProjectiles(app, canvas):
                         app.leftBorder, proj.yi + proj.size, fill = proj.color, outline = proj.color)
         else:
             canvas.create_oval(proj.x-proj.size, proj.y-proj.size, 
-                    proj.x+proj.size, proj.y+proj.size, fill = proj.color, outline = proj.color)
+                    proj.x+proj.size, proj.y+proj.size, fill = proj.color)
 
 def drawHpBar(app, canvas, topMargin):
     sideMargin = 20
@@ -897,7 +909,7 @@ def drawHpBar(app, canvas, topMargin):
     canvas.create_rectangle(x2, y1, x3, y2, fill = "red", outline = None)
     midX = sideMargin + (x3-x1)/2
     midY = y1 + (y2-y1)/2
-    canvas.create_text(midX, topMargin, text = "Health", font = "Arial 20")
+    canvas.create_text(midX, topMargin, text = "Health", font = "Arial 20 bold")
     canvas.create_text(midX, midY, text = f"{currHp}/{maxHp}", font = "Arial 10")
 
 def inventoryCellBounds(app, row, col, topMargin):
@@ -914,8 +926,7 @@ def inventoryCellBounds(app, row, col, topMargin):
 
 def drawInventory(app, canvas, rows, cols, topMargin):
     cellSize = 60
-    sideMargin = (app.leftBorder - len(app.loadout)*cellSize)/2
-    canvas.create_text(app.leftBorder/2, topMargin, text = "Loadout", font = "Arial 20")
+    canvas.create_text(app.leftBorder/2, topMargin, text = "Loadout", font = "Arial 20 bold")
     canvas.create_text(app.leftBorder/2, topMargin + 20, 
         text = "Press 's' to cycle through", font = "Arial 10")
     for row in range(rows):
@@ -923,8 +934,8 @@ def drawInventory(app, canvas, rows, cols, topMargin):
             x1, y1, x2, y2 = inventoryCellBounds(app, row, col, topMargin + 40)
             #print(x1, y1, x2, y2)
             if app.weaponIndex == col:
-                canvas.create_rectangle(x1, y1, x2, y2, fill = "white", 
-                    outline = "black", width = 6)
+                canvas.create_rectangle(x1+2, y1+2, x2-2, y2-2, fill = "white", 
+                    outline = "black", width = 8)
             else:
                 canvas.create_rectangle(x1, y1, x2, y2, fill = "white", 
                     outline = "black", width = 3)
@@ -940,10 +951,43 @@ def drawInventory(app, canvas, rows, cols, topMargin):
                     canvas.create_rectangle(midX-size, midY-size, midX+size, midY+size,
                         fill = weaponColor)
 
+def drawReload(app, canvas, topMargin):
+    sideMargin = 40
+    barHeight = 10
+    maxReload = app.player.weapon.reloadTime
+    currReload = maxReload - app.player.weapon.reload
+    barLength = app.leftBorder - 2*sideMargin
+    currReloadLength = barLength * (currReload/maxReload)
+    missingHpLength = barLength - currReloadLength
+    x1 = sideMargin
+    y1 = topMargin + barHeight
+    x2 = sideMargin + currReloadLength
+    y2 = y1 + barHeight
+    x3 = x2 + missingHpLength
+    canvas.create_rectangle(x1, y1, x2, y2, fill = "yellow")
+    if app.player.weapon.ammo == 0:
+        canvas.create_rectangle(x1, y1, x1 + barLength, y2, fill = "gray")
+    else:
+        canvas.create_rectangle(x2, y1, x3, y2, fill = "gray")
+    midX = sideMargin + (x3-x1)/2
+    #midY = y1 + (y2-y1)/2
+    #canvas.create_text(midX, topMargin + 5, text = "Reload", font = "Arial 15")
+    if app.player.weapon.reload > 0:
+        canvas.create_text(midX, topMargin, text = f"Reloading...", font = "Arial 10")
+    else:
+        canvas.create_text(midX, topMargin, text = app.player.weapon, font = "Arial 10 bold")
+    canvas.create_text(midX, y2 + 5, 
+        text = f"Damage: {app.player.weapon.dmg}        Speed: {app.player.weapon.speed}        Ammo: {app.player.weapon.ammo}",
+        anchor = "n")
+
+
 def drawUI(app, canvas):
     topMargin = 40
     drawHpBar(app, canvas, topMargin)
-    drawInventory(app, canvas, 1, 3, topMargin + 100)
+    topMargin += 80
+    drawInventory(app, canvas, 1, 3, topMargin)
+    topMargin += 120
+    drawReload(app, canvas, topMargin + 1)
 
 ######################## Built-in Controller Functions #########################
 
